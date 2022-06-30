@@ -1,9 +1,24 @@
-import fs from 'fs'
+
 import { TABMAPHeaderBlock, TABMAPIndexBlock, TABMAPObjectBlock, TABRawBlock, SupportedBlockTypes, TABMAPVertex, TABMAPIndexEntry } from './TABRawBinBlock'
 
 
 type byte = number
 type int = number
+export class Stream {
+    Position = 0
+    Length = 0;
+    buf: Uint8Array
+    constructor(buf: Uint8Array) {
+        this.buf = buf;
+        this.Length = buf.length
+    }
+    Read(out: Uint8Array, offset: number, size: number) {
+        let data = this.buf.slice(this.Position, this.Position + size)
+        this.Position += size;
+        out.set(data, offset)
+        return data
+    }
+}
 export class MapFile {
     //public int m_nMinTABVersion = 300;
     //private Collection<mapFileRecord> _records = new Collection<mapFileRecord>();
@@ -12,64 +27,49 @@ export class MapFile {
     index?: TABMAPIndexBlock;
     objects?: TABMAPObjectBlock;
 
-    Open(fileName: string): void {
-        if (!fileName)
-            throw new Error("fileName is empty");
+    Open(file: ArrayBuffer): void {
 
-        // читаем геометрию из файла .map
-        let mapFile: string = fileName.toLocaleLowerCase().replace(".tab", ".map");
-        //int[] offsets;
-
-        // .map-файл необходим по спецификации, но прочесть shape-файл можно и без него.
-        if (fs.existsSync(mapFile)) {
-            //offsets = ReadIndex(mapFile);
-            //else
-            //    offsets = new int[] { };
-
-            let stream = fs.createReadStream(fileName)
+        let stream = new Stream(new Uint8Array(file))
+        while (stream.Position < stream.Length) {
             try {
-                while (stream.Position < stream.Length) {
-                    try {
-                        if (stream.Position == 0) {
-                            this.header = new TABMAPHeaderBlock(TABRawBlock.GetBlock(stream));
-                        }
-                        else if (stream.Position == TABRawBlock.Size && this.header &&
-                            this.header.m_nMAPVersionNumber == TABMAPHeaderBlock.HDR_VERSION_NUMBER) {
-                            this.header.Add(TABRawBlock.GetBlock(stream));
-                        }
-                        else {
-                            let blk: Uint8Array = TABRawBlock.GetBlock(stream);
-                            switch (TABRawBlock.GetBlockClass(blk)) {
-                                case SupportedBlockTypes.TABMAP_INDEX_BLOCK:
-                                    if (this.index == null)
-                                        this.index = new TABMAPIndexBlock(blk);
-                                    else
-                                        this.index.Add(blk);
-                                    break;
-                                case SupportedBlockTypes.TABMAP_OBJECT_BLOCK:
-                                    if (this.objects == null)
-                                        this.objects = new TABMAPObjectBlock(blk);
-                                    else
-                                        this.objects.Add(blk);
-                                    break;
-                                default:
-                                    break;
-                            }
-                        }
+                if (stream.Position == 0) {
+                    this.header = new TABMAPHeaderBlock(TABRawBlock.GetBlock(stream));
+                }
+                else if (stream.Position == TABRawBlock.Size && this.header &&
+                    this.header.m_nMAPVersionNumber == TABMAPHeaderBlock.HDR_VERSION_NUMBER) {
+                    this.header.Addb(TABRawBlock.GetBlock(stream));
+                }
+                else {
+                    let blk: Uint8Array = TABRawBlock.GetBlock(stream);
+                    console.log('stream pos', stream.Position);
+                    switch (TABRawBlock.GetBlockClass(blk)) {
+                        case SupportedBlockTypes.TABMAP_INDEX_BLOCK:
+                            if (this.index)
+                                this.index.Addb(blk);
+                            else
+                                this.index = new TABMAPIndexBlock(blk);
 
-                    }
-                    catch (IOException) {
-                        break;
+                            break;
+                        case SupportedBlockTypes.TABMAP_OBJECT_BLOCK:
+                            if (this.objects == null)
+                                this.objects = new TABMAPObjectBlock(blk);
+                            else
+                                this.objects.Addb(blk);
+                            break;
+                        default:
+                            break;
                     }
                 }
-            }
-            catch
-            {
-                stream.flush();
-                stream.close();
-            }
 
+            }
+            catch (err) {
+                console.error('parseError', err);
+                break;
+            }
         }
+
+
+
 
         //string dbaseFile = fileName.ToLower().Replace(".shp", ".dbf");
         ////dbaseFile = dbaseFile.Replace(".SHP", ".DBF");

@@ -1,4 +1,4 @@
-import { MapFileRecord } from './MapFile'
+import { MapFileRecord, Stream } from './MapFile'
 /// <summary>
 /// This is the base class used for all other data block types...&#13;
 /// it contains all the base functions to handle binary data.&#10;
@@ -6,19 +6,7 @@ import { MapFileRecord } from './MapFile'
 /// Он содержит все базовые функции для обработки двоичных данных.
 /// </summary>
 
-class Stream {
-    Position = 0
-    buf: Uint8Array
-    constructor(buf: Uint8Array) {
-        this.buf = buf;
-    }
-    Read(out: Uint8Array, offset: number, size: number) {
-        let data = this.buf.slice(this.Position, this.Position + size)
-        this.Position += size;
-        out.set(data, offset)
-        return data
-    }
-}
+
 
 type bool = boolean
 type int = number
@@ -307,32 +295,32 @@ export class TABRawBinBlock {
 
     }
 
-    private read = new DataView(new ArrayBuffer(8));
+    private read = new Uint8Array(new ArrayBuffer(8));
 
     ReadBuf(count: int): Uint8Array {
-        this.m_fp.Read(new Uint8Array(this.read.buffer), 0, count);
-        return new Uint8Array(this.read.buffer);
+        this.m_fp.Read(this.read, 0, count);
+        return this.read;
     }
     ReadByte() {
-        this.m_fp.Read(new Uint8Array(this.read.buffer), 0, 1);
-        return this.read.getUint8(0);
+        this.m_fp.Read(this.read, 0, 1);
+        return this.read[0];
     }
 
     ReadShort() {
-        this.m_fp.Read(new Uint8Array(this.read.buffer), 0, 2);
-        return this.read.getInt16(0)
+        this.m_fp.Read(this.read, 0, 2);
+        return (new Int16Array(this.read.buffer))[0]
     }
     ReadInt() {
         this.m_fp.Read(new Uint8Array(this.read.buffer), 0, 4);
-        return this.read.getInt32(0)
+        return (new Int32Array(this.read.buffer))[0]
     }
     ReadLong() {
         this.m_fp.Read(new Uint8Array(this.read.buffer), 0, 8);
-        return this.read.getBigInt64(0)
+        return new BigInt64Array(this.read.buffer)[0]
     }
     ReadDouble() {
         this.m_fp.Read(new Uint8Array(this.read.buffer), 0, 8);
-        return this.read.getFloat64(0)
+        return (new Float64Array(this.read.buffer))[0]
     }
 
     /*TODO ReadVars(m_fp: Stream, variable: any): void {
@@ -410,8 +398,8 @@ class TABProjInfo {
 
 export class TABRawBlock {
     static Size = 0x200 as const;
-    read = new DataView(new ArrayBuffer(TABRawBlock.Size)); // = new byte[Size];
-    raws: DataView[] = [];
+    read = new Uint8Array(new ArrayBuffer(TABRawBlock.Size)); // = new byte[Size];
+    raws: Uint8Array[] = [];
     public Position: short = 0;
     //public SupportedBlockTypes BlockClass = SupportedBlockTypes.TAB_RAWBIN_BLOCK;
 
@@ -438,7 +426,7 @@ export class TABRawBlock {
     }
 
     public Add(block: ArrayBuffer): void {
-        this.read = new DataView(block);
+        this.read = new Uint8Array(block);
         this.raws.push(this.read);
     }
 
@@ -458,34 +446,34 @@ export class TABRawBlock {
         return variable;
     }
     ReadByte() {
-        let variable = this.read.getUint8(this.Position)
+        let variable = this.read[this.Position]
         this.Position += 1;
         return variable;
     }
     ReadSByte() {
-        let variable = this.read.getInt8(this.Position)
+        let variable = (new Int8Array(this.read.buffer))[this.Position];
         this.Position += 1;
         return variable;
     }
 
     ReadInt16() {
-        let variable = this.read.getInt16(this.Position)
+        let variable = (new Int16Array(this.read.buffer.slice(this.Position, this.Position + Math.floor((this.read.buffer.byteLength - this.Position) / 2) * 2)))[0];
         this.Position += 2;
         return variable;
     }
 
     ReadInt32() {
-        let variable = this.read.getInt32(this.Position)
+        let variable = (new Int32Array(this.read.buffer.slice(this.Position, this.Position + Math.floor((this.read.buffer.byteLength - this.Position) / 4) * 4)))[0]
         this.Position += 4;
         return variable;
     }
     ReadInt64() {
-        let variable = this.read.getBigInt64(this.Position)
+        let variable = (new BigInt64Array(this.read.buffer.slice(this.Position, this.Position + Math.floor((this.read.buffer.byteLength - this.Position) / 8) * 8)))[0]
         this.Position += 8;
         return variable;
     }
     ReadDouble() {
-        let variable = this.read.getFloat64(this.Position)
+        let variable = (new Float64Array(this.read.buffer.slice(this.Position, this.Position + Math.floor((this.read.buffer.byteLength - this.Position) / 8) * 8)))[0]
         this.Position += 8;
         return variable;
     }
@@ -945,22 +933,27 @@ export class TABMAPObjectBlock extends TABRawBlock {
         this.link[this.link.length - 1] = this.ReadByte();
 
         this.m_numDataBytes = this.ReadInt16();       /* Excluding 4 bytes header */
+        //console.log('this.m_numDataBytes: ', this.m_numDataBytes);
 
         this.m_nCenterX = this.ReadInt32();
+        //console.log('this.m_nCenterX: ', this.m_nCenterX);
         this.m_nCenterY = this.ReadInt32();
 
         this.m_nFirstCoordBlock = this.ReadInt32();
         this.m_nLastCoordBlock = this.ReadInt32();
+        //console.log('this.m_nLastCoordBlock: ', this.m_nLastCoordBlock);
 
 
         //m_nCurObjectOffset = -1;
         //m_nCurObjectId = -1;
         //m_nCurObjectType = -1;
 
-        while (this.Position < this.m_numDataBytes + this.HeaderSize) {
+        while (this.Position < (this.m_numDataBytes + this.HeaderSize)) {
 
             let poObj: MapFileRecord = new MapFileRecord();
+            //console.log(this.Position);
             poObj.ShapeType = this.ReadByte();
+            //console.log('poObj.ShapeType: ', this.read, poObj.ShapeType);
             poObj.MBR.Id = this.ReadInt32();
             switch (poObj.ShapeType as GeometryType) {
                 case (GeometryType.NONE):
@@ -1085,8 +1078,27 @@ export class TABMAPObjectBlock extends TABRawBlock {
                     poObj.MBR.YMax = this.ReadInt32();
                     poObj.Symbol = this.ReadByte();
 
+
                     break;
                 case GeometryType.REGION_C:
+                    //this.Position += 4 + 4 + 2 + 8 + 16 + 1 + 1
+                    /*poObj.CoordBlockPtr = this.ReadInt32();
+                    poObj.CoordDataSize = this.ReadInt32();
+                    this.ReadInt16();
+                    poObj.LabelLocation = {
+                        X: this.ReadInt32(),
+                        Y: this.ReadInt32()
+                    };
+                    poObj.MBR.XMin = this.ReadInt32();
+                    poObj.MBR.YMin = this.ReadInt32();
+                    poObj.MBR.XMax = this.ReadInt32();
+                    poObj.MBR.YMax = this.ReadInt32();
+                    poObj.Symbol = this.ReadByte();
+                    this.ReadByte();
+                    */
+                    //poObj.CoordBlockPtr = this.ReadInt32();
+                    //poObj.CoordDataSize = this.ReadInt32();
+                    //poObj.Symbol = this.ReadByte();
                     //ShortRegion [ID 13] (length: &H25):
                     //&H0     1       1       Identifier (Value: &HD) [!]
                     //&H1     4       1       RowID - Validity: (+0 = Valid; +&H40000000 = Deleted)       
@@ -1099,6 +1111,7 @@ export class TABMAPObjectBlock extends TABRawBlock {
                     //&H24    1       1       Brush type number from Resource Block
                     break;
                 case GeometryType.REGION:
+                    //this.Position += 4 + 4 + 2 + 8 + 16 + 1 + 1
                     //LongRegion [ID 14] (length: &H29):
                     //&H0     1       1       Identifier (Value: &HE) [!]
                     //&H1     4       1       RowID - Validity: (+0 = Valid; +&H40000000 = Deleted)       
